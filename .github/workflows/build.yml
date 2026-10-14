@@ -1,0 +1,43 @@
+name: Build
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: macos-14
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      # On a tag like v1.2.3, build as version 1.2.3 so the binaries match the release.
+      - name: Set version from tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: sed -i '' "s/\"0.0.0-dev\"/\"${GITHUB_REF_NAME#v}\"/" Sources/ImageDiffCore/AppVersion.swift
+      - run: swift --version
+      - run: swift test
+      # Universal binary: Apple Silicon and Intel.
+      - run: swift build -c release --arch arm64 --arch x86_64 --product imgdiff
+      - name: Collect binaries
+        run: |
+          mkdir dist
+          cp "$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)/imgdiff" dist/
+          lipo -info dist/imgdiff
+          lipo dist/imgdiff -verify_arch arm64 x86_64
+          vtool -show-build dist/imgdiff | grep -E 'minos|version'
+          dist/imgdiff --help
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ImageDiff-macos-universal
+          path: dist
+
+      # Pushing a tag like v1.0.0 publishes a GitHub release with the zipped build.
+      - name: Create release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          zip="ImageDiff-${GITHUB_REF_NAME}-macos-universal.zip"
+          (cd dist && zip -r "../$zip" .)
+          gh release create "$GITHUB_REF_NAME" "$zip" --title "$GITHUB_REF_NAME" --generate-notes
