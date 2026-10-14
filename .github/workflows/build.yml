@@ -3,6 +3,13 @@ name: Build
 on:
   push:
   pull_request:
+  # Actions > Build > Run workflow: builds from the chosen branch, then tags it and publishes
+  # the release. GitHub doesn't run workflows for tags this workflow creates, so it does both.
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to release, like 1.2.3 (tagged as v1.2.3)
+        required: true
 
 jobs:
   build:
@@ -13,12 +20,29 @@ jobs:
       VERSION: 0.0.0-dev
     steps:
       - uses: actions/checkout@v4
-      # On a tag like v1.2.3, build as version 1.2.3 so the binaries match the release.
-      - name: Set version from tag
-        if: startsWith(github.ref, 'refs/tags/v')
+      # Releasing (a pushed tag like v1.2.3, or a manual run): build as version 1.2.3 so the
+      # binaries match the release.
+      - name: Set release version
+        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
-          echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
-          sed -i '' "s/\"0.0.0-dev\"/\"${GITHUB_REF_NAME#v}\"/" Sources/ImageDiffCore/AppVersion.swift
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            version="${INPUT_VERSION#v}"
+            if git ls-remote --exit-code --tags origin "refs/tags/v$version" >/dev/null; then
+              echo "::error::Tag v$version already exists."
+              exit 1
+            fi
+          else
+            version="${GITHUB_REF_NAME#v}"
+          fi
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Version '$version' should look like 1.2.3."
+            exit 1
+          fi
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          echo "TAG=v$version" >> "$GITHUB_ENV"
+          sed -i '' "s/\"0.0.0-dev\"/\"$version\"/" Sources/ImageDiffCore/AppVersion.swift
       - run: swift --version
       - run: swift test
       # Universal binaries: Apple Silicon and Intel.
@@ -61,12 +85,13 @@ jobs:
           name: ImageDiff-macos-universal
           path: dist
 
-      # Pushing a tag like v1.0.0 publishes a GitHub release with the zipped build.
+      # Publishes a GitHub release with the zipped build. On a manual run this also creates the
+      # tag, on the commit that was built.
       - name: Create release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: env.TAG != ''
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          zip="ImageDiff-${GITHUB_REF_NAME}-macos-universal.zip"
+          zip="ImageDiff-${TAG}-macos-universal.zip"
           (cd dist && ditto -c -k --keepParent ImageDiff.app "../$zip" && zip -j "../$zip" imgdiff)
-          gh release create "$GITHUB_REF_NAME" "$zip" --title "$GITHUB_REF_NAME" --generate-notes
+          gh release create "$TAG" "$zip" --target "$GITHUB_SHA" --title "$TAG" --generate-notes
