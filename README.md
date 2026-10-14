@@ -102,4 +102,7 @@ swift run ImageDiff                # build for this Mac and open the window
 scripts/build-app.sh               # universal dist/ImageDiff.app and dist/imgdiff
 ```
 
-Pushing a tag like `v1.0.0` builds a release with the zipped app and command line.
+To make a release, go to **Actions > Build > Run workflow**, pick the branch (usually `main`)
+and enter a version like `1.2.0`. The workflow builds and tests it, tags the commit `v1.2.0`
+and publishes a release with the zipped app and command line. Pushing a tag like `v1.2.0`
+yourself does the same.
