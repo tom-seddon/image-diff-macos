@@ -7,10 +7,12 @@ let package = Package(
     products: [
         .library(name: "ImageDiffCore", targets: ["ImageDiffCore"]),
         .executable(name: "imgdiff", targets: ["imgdiff"]),
+        .executable(name: "ImageDiff", targets: ["ImageDiff"]),
     ],
     targets: [
         .target(name: "ImageDiffCore"),
         .executableTarget(name: "imgdiff", dependencies: ["ImageDiffCore"]),
+        .executableTarget(name: "ImageDiff", dependencies: ["ImageDiffCore"]),
         .testTarget(name: "ImageDiffCoreTests", dependencies: ["ImageDiffCore"]),
     ]
 )

@@ -9,24 +9,53 @@ jobs:
     runs-on: macos-14
     permissions:
       contents: write
+    env:
+      VERSION: 0.0.0-dev
     steps:
       - uses: actions/checkout@v4
       # On a tag like v1.2.3, build as version 1.2.3 so the binaries match the release.
       - name: Set version from tag
         if: startsWith(github.ref, 'refs/tags/v')
-        run: sed -i '' "s/\"0.0.0-dev\"/\"${GITHUB_REF_NAME#v}\"/" Sources/ImageDiffCore/AppVersion.swift
+        run: |
+          echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+          sed -i '' "s/\"0.0.0-dev\"/\"${GITHUB_REF_NAME#v}\"/" Sources/ImageDiffCore/AppVersion.swift
       - run: swift --version
       - run: swift test
-      # Universal binary: Apple Silicon and Intel.
-      - run: swift build -c release --arch arm64 --arch x86_64 --product imgdiff
-      - name: Collect binaries
+      # Universal binaries: Apple Silicon and Intel.
+      - run: scripts/build-app.sh "$VERSION"
+      - name: Check binaries
         run: |
-          mkdir dist
-          cp "$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)/imgdiff" dist/
-          lipo -info dist/imgdiff
-          lipo dist/imgdiff -verify_arch arm64 x86_64
-          vtool -show-build dist/imgdiff | grep -E 'minos|version'
-          dist/imgdiff --help
+          for bin in dist/ImageDiff.app/Contents/MacOS/ImageDiff dist/ImageDiff.app/Contents/MacOS/imgdiff dist/imgdiff; do
+            lipo -info "$bin"
+            lipo "$bin" -verify_arch arm64 x86_64
+            vtool -show-build "$bin" | grep -E 'minos'
+          done
+          plutil -lint dist/ImageDiff.app/Contents/Info.plist
+          codesign --verify --verbose dist/ImageDiff.app
+      - name: Smoke test
+        run: |
+          python3 scripts/make-test-images.py "$RUNNER_TEMP/img"
+          cd "$RUNNER_TEMP/img"
+          "$GITHUB_WORKSPACE/dist/imgdiff" --help
+          "$GITHUB_WORKSPACE/dist/imgdiff" a.png a.png
+          set +e
+          "$GITHUB_WORKSPACE/dist/imgdiff" a.png b.png -o cli-diff.png | tee cli.txt
+          status=${PIPESTATUS[0]}
+          set -e
+          test "$status" -eq 1
+          grep -q "^50 of 3,072 pixels differ" cli.txt
+          test -s cli-diff.png
+
+          # The app should open, compare and save the difference image from its command line.
+          "$GITHUB_WORKSPACE/dist/ImageDiff.app/Contents/MacOS/ImageDiff" a.png b.png -o "$PWD/app-diff.png" &
+          app=$!
+          for i in $(seq 1 60); do
+            [ -s app-diff.png ] && break
+            sleep 1
+          done
+          kill "$app" || true
+          test -s app-diff.png
+          cmp cli-diff.png app-diff.png
       - uses: actions/upload-artifact@v4
         with:
           name: ImageDiff-macos-universal
@@ -39,5 +68,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           zip="ImageDiff-${GITHUB_REF_NAME}-macos-universal.zip"
-          (cd dist && zip -r "../$zip" .)
+          (cd dist && ditto -c -k --keepParent ImageDiff.app "../$zip" && zip -j "../$zip" imgdiff)
           gh release create "$GITHUB_REF_NAME" "$zip" --title "$GITHUB_REF_NAME" --generate-notes
