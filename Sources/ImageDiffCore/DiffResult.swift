@@ -1,6 +1,6 @@
 import Foundation
 
-public struct DiffResult {
+public struct DiffResult: Sendable {
     /// Width of the compared area (the larger of the two image widths).
     public let width: Int
 

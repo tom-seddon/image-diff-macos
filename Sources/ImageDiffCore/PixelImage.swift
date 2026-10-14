@@ -1,6 +1,6 @@
 /// A decoded image as tightly packed 32-bit BGRA pixels (4 bytes per pixel, no row padding),
 /// with straight (not premultiplied) alpha.
-public struct PixelImage: Equatable {
+public struct PixelImage: Equatable, Sendable {
     public let width: Int
     public let height: Int
     public var bgra: [UInt8]
