@@ -612,8 +612,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
 
         switch event.charactersIgnoringModifiers {
         case " ":
-            // Ignore auto-repeat so holding the key doesn't strobe between the images.
-            if !event.isARepeat { flip(nil) }
+            // Holding the key auto-repeats, flipping back and forth at the keyboard repeat rate.
+            flip(nil)
             return nil
         case "1":
             setMode(.difference)
